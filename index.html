@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DINAMITA APPS — HTML (Light)</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#ffffff; color:#111; }
+  a { color: inherit; text-decoration: none; }
+  header { position:sticky; top:0; background:#fff; border-bottom:1px solid #e5e7eb; z-index:10; }
+  header .wrap { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 18px; max-width:1200px; margin:0 auto; }
+  .brand { font-weight:900; letter-spacing:.5px; user-select:none; color:#111; display:flex; align-items:center; gap:8px; }
+  .brand .red { color:#E02424; }
+  .brand img { width:28px; height:28px; border-radius:6px; }
+  nav a { padding:8px 10px; border-radius:10px; margin:2px; font-size:14px; color:#111; }
+  nav a.active, nav a:hover { background:#f3f4f6; border:1px solid #e5e7eb; }
+  .container { max-width:1200px; margin:0 auto; padding:20px; }
+  .grid { display:grid; gap:16px; }
+  .cards { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }
+  .card { background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:16px; box-shadow:0 8px 16px rgba(0,0,0,.05); }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap: wrap; }
+  .between { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap: wrap; }
+  .btn { background:#E02424; border:0; color:#fff; padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer; }
+  .btn.secondary { background:#fff; border:1px solid #e5e7eb; color:#111; }
+  .btn.ghost { background:transparent; border:0; color:#6b7280; }
+  .input, select, textarea { width:100%; padding:12px; border-radius:10px; border:1px solid #e5e7eb; background:#fff; color:#111; }
+  .table { width:100%; border-collapse:collapse; background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
+  .table th, .table td { padding:10px 12px; border-bottom:1px solid #f3f4f6; font-size:14px; text-align:left; vertical-align: top; }
+  .muted { color:#6b7280; font-size:13px; }
+  .pill { font-size:12px; background:#f9fafb; border:1px solid #e5e7eb; padding:4px 8px; border-radius:999px; color:#111; }
+  .ok { color:#16a34a; } .danger { color:#dc2626; }
+  .home-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; }
+  @media (max-width: 920px) { nav { display:flex; overflow:auto; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div id="brand" class="brand">
+      <img src="assets/icon-192.png" alt="logo">
+      <span><span class="red">DINAMITA</span> APPS</span>
+    </div>
+    <nav id="topnav">
+      <a href="#/welcome">Inicio</a>
+      <a href="#/panel/catalogo">Catálogo</a>
+      <a href="#/panel/inventario">Inventario</a>
+      <a href="#/panel/ventas">POS</a>
+      <a href="#/panel/membresias">Membresías</a>
+      <a href="#/panel/clientes">Clientes</a>
+      <a href="#/panel/reportes">Reportes</a>
+      <a href="#/panel/backup">Backup</a>
+    </nav>
+    <button id="btnInstall" class="btn secondary" style="display:none">Instalar app</button>
+  </div>
+</header>
+
+<main id="app" class="container"></main>
+
+<button class="btn home-btn" onclick="location.hash='#/welcome'">🏠 Menú principal</button>
+
+<footer class="container">
+  <div class="muted">Dinamita Apps 💥 — HTML + POS + Membresías + PWA (offline, datos locales)</div>
+</footer>
+
+<script>
+/* === PWA & Persistencia === */
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.error);
+let _deferredPrompt=null; const btnInstall=document.getElementById('btnInstall');
+window.addEventListener('beforeinstallprompt',(e)=>{ e.preventDefault(); _deferredPrompt=e; btnInstall.style.display='inline-block'; });
+btnInstall?.addEventListener('click', async ()=>{ if(!_deferredPrompt) return; _deferredPrompt.prompt(); await _deferredPrompt.userChoice; _deferredPrompt=null; btnInstall.style.display='none'; });
+
+async function requestStoragePersist() {
+  try {
+    if (navigator.storage && navigator.storage.persist) {
+      const granted = await navigator.storage.persist();
+      console.log('Persistencia de almacenamiento:', granted ? 'GARANTIZADA' : 'NO garantizada');
+    }
+  } catch(e) { console.warn('Persistencia no soportada', e); }
+}
+requestStoragePersist();
+
+/* === Folio DG-0001, continuo === */
+const FOLIO_NUM_KEY = 'dinamita:folio:num';
+const FOLIO_PREFIX = 'DG-';
+function nextFolioCode() {
+  const n = parseInt(localStorage.getItem(FOLIO_NUM_KEY) || '1', 10);
+  localStorage.setItem(FOLIO_NUM_KEY, String(n + 1));
+  const padded = String(n).padStart(4, '0'); // 0001, 0002...
+  return FOLIO_PREFIX + padded;
+}
+
+/* === DB (localStorage) === */
+const DB_KEY='dinamita_apps_db_light_v1';
+const nowISO=()=>new Date().toISOString();
+const addMonths=(dStr, m)=>{ const d=new Date(dStr); d.setMonth(d.getMonth()+m); return d.toISOString().slice(0,10); };
+const loadDB=()=>{ try { return JSON.parse(localStorage.getItem(DB_KEY))||seed(); } catch(_) { return seed(); } };
+const saveDB=(db)=>localStorage.setItem(DB_KEY, JSON.stringify(db));
+function seed(){
+  const today = new Date().toISOString().slice(0,10);
+  const db={
+    business:{name:'Dinamita Gym', slogan:'¡Bienvenido a tu DINAMITA app!', colors:['#E02424','#000','#111'],
+      address:'Av. Baja California #70, Chimalhuacán', whatsapp:'56 4319 5153' },
+    catalog:[
+      {id:'mem-vip',name:'Membresía VIP',type:'membresia',price:250,stock:null},
+      {id:'mem-mensual',name:'Membresía Mensual',type:'membresia',price:300,stock:null},
+      {id:'pre-entreno',name:'Pre-entreno 300g',type:'producto',price:450,stock:10},
+      {id:'proteina',name:'Proteína 2lb',type:'producto',price:650,stock:8},
+      {id:'agua',name:'Agua 600ml',type:'producto',price:20,stock:50},
+      {id:'clase-box',name:'Clase Box 1hr',type:'servicio',price:120,stock:null}
+    ],
+    memberships:[
+      {id:'m-1',name:'Juan Pérez',plan:'VIP',start:today,months:1,end:addMonths(today,1),status:'activa'},
+      {id:'m-2',name:'Ana López',plan:'Mensual',start:today,months:1,end:addMonths(today,1),status:'activa'}
+    ],
+    customers:[{id:'c-1',name:'Carlos Ruiz',phone:'555-100-200',email:'cr@example.com',notes:'VIP',createdAt:nowISO()}],
+    sales:[{id:'sale-seed',folio: nextFolioCode(), date:nowISO(),items:[{id:'agua',name:'Agua 600ml',price:20,qty:2,type:'producto'}],total:40,pay:'efectivo'}],
+    stock_moves:[],
+    createdAt: nowISO(),
+    updatedAt: nowISO()
+  };
+  saveDB(db); return db;
+}
+let DB=loadDB();
+
+/* === Router === */
+const app=document.getElementById('app');
+const nav=document.getElementById('topnav').querySelectorAll('a');
+const routes={
+  '/welcome':Welcome,
+  '/panel/catalogo':Catalog,
+  '/panel/inventario':Inventory,
+  '/panel/ventas':Sales,
+  '/panel/membresias':Memberships,
+  '/panel/clientes':Customers,
+  '/panel/reportes':Reports,
+  '/panel/backup':Backup
+};
+function setActive(h){ nav.forEach(a=>a.classList.toggle('active', a.getAttribute('href')===h)); }
+function render(route){ app.innerHTML=''; const view=(routes[route]||Welcome); app.appendChild(view()); setActive('#'+route); localStorage.setItem('dinamita:last',route); }
+window.addEventListener('hashchange',()=>render(location.hash.replace('#','')||'/welcome'));
+
+/* === UI Helpers === */
+function h(tag,attrs={},children=[]){const el=document.createElement(tag);for(const k in attrs){if(k==='class')el.className=attrs[k];else if(k==='html')el.innerHTML=attrs[k];else if(k.startsWith('on')&&typeof attrs[k]==='function')el.addEventListener(k.substring(2).toLowerCase(),attrs[k]);else el.setAttribute(k,attrs[k]);}(Array.isArray(children)?children:[children]).forEach(c=>{if(c==null)return;if(typeof c==='string')el.appendChild(document.createTextNode(c));else el.appendChild(c);});return el;}
+const Section=(t,s)=>h('div',{},[h('h1',{},t),s?h('div',{class:'muted'},s):null]);
+const Card=(t,sub,btn)=>h('div',{class:'card'},[h('h2',{},t),sub?h('div',{class:'muted'},sub):null,btn?btn:null]);
+
+/* === Ticket con logo, dirección y mensaje === */
+function printTicket(sale) {
+  const negocio = DB.business?.name || 'Dinamita';
+  const fecha = new Date(sale.date).toLocaleString();
+  const logoSrc = 'assets/icon-192.png';
+  const dir = DB.business?.address || '';
+  const wa = DB.business?.whatsapp || '';
+  let rows = sale.items.map(i => `
+    <tr>
+      <td>${i.name}</td>
+      <td style="text-align:right;">${i.qty}</td>
+      <td style="text-align:right;">$${i.price.toFixed(2)}</td>
+      <td style="text-align:right;">$${(i.price*i.qty).toFixed(2)}</td>
+    </tr>
+  `).join('');
+
+  const html = `<!doctype html><html><head><meta charset="utf-8">
+  <title>Ticket ${sale.folio ?? ''}</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin:0; padding:16px; background:#fff; color:#111; }
+    .wrap { max-width: 360px; margin: 0 auto; }
+    .head { text-align:center; }
+    .head img { width: 72px; height:72px; object-fit:contain; }
+    h1 { font-size: 16px; margin: 6px 0 2px; }
+    .muted { color:#555; font-size:12px; }
+    table { width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; }
+    td, th { padding:4px 0; }
+    tfoot td { border-top: 1px dashed #aaa; padding-top:8px; font-weight:700; }
+    .right { text-align:right; }
+    @media print { .noprint { display:none } }
+  </style></head><body>
+    <div class="wrap">
+      <div class="head">
+        <img src="${logoSrc}" alt="logo">
+        <h1>${negocio}</h1>
+        <div class="muted">Folio: <b>${sale.folio ?? ''}</b> · ${fecha} · Pago: ${sale.pay}</div>
+        <div class="muted">${dir}</div>
+        <div class="muted">WhatsApp: ${wa}</div>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Descripción</th><th class="right">Cant</th><th class="right">Precio</th><th class="right">Importe</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr><td colspan="3" class="right">Total</td><td class="right">$${sale.total.toFixed(2)}</td></tr>
+        </tfoot>
+      </table>
+      <p class="muted" style="text-align:center; margin-top:10px">Gracias por su compra</p>
+      <div class="noprint" style="text-align:center; margin-top:12px"><button onclick="window.print()">Imprimir</button></div>
+    </div>
+    <script> window.print(); </script>
+  </body></html>`;
+
+  const w = window.open('', '_blank', 'width=420,height=720');
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+/* === Vistas === */
+function Welcome(){
+  return h('div',{},[
+    Section(DB.business.slogan,'Elige un módulo o entra al POS.'),
+    h('div',{class:'grid cards'},[
+      h('a',{href:'#/panel/ventas',class:'card'},[h('h2',{},'POS'),h('div',{class:'muted'},'Vender ahora')]),
+      h('a',{href:'#/panel/catalogo',class:'card'},[h('h2',{},'Catálogo'),h('div',{class:'muted'},'Productos/Servicios')]),
+      h('a',{href:'#/panel/membresias',class:'card'},[h('h2',{},'Membresías'),h('div',{class:'muted'},'Socios y vigencias')]),
+      h('a',{href:'#/panel/inventario',class:'card'},[h('h2',{},'Inventario'),h('div',{class:'muted'},'Entradas/Salidas/Ajustes')]),
+      h('a',{href:'#/panel/clientes',class:'card'},[h('h2',{},'Clientes'),h('div',{class:'muted'},'Agenda rápida')]),
+      h('a',{href:'#/panel/reportes',class:'card'},[h('h2',{},'Reportes'),h('div',{class:'muted'},'Totales y alertas')])
+    ]),
+    h('div',{class:'card',style:'margin-top:12px'},[
+      h('div',{class:'between'},[h('div',{},[h('strong',{},'Negocio: '),h('span',{},DB.business.name)]),
+        h('button',{class:'btn',onClick:()=>{DB=seed();render('/welcome')}},'Restablecer PRUEBA')]),
+      h('div',{class:'muted',style:'margin-top:6px'},`Última actualización: ${DB.updatedAt}`)
+    ])
+  ]);
+}
+
+/* --- Catálogo --- */
+function Catalog(){
+  const tbody=h('tbody');
+  function draw(){tbody.innerHTML='';DB.catalog.forEach(p=>tbody.appendChild(h('tr',{},[
+    h('td',{},p.id),h('td',{},p.name),h('td',{},p.type),h('td',{},'$'+Number(p.price).toFixed(2)),h('td',{},p.stock??'—'),
+    h('td',{},[h('button',{class:'btn secondary',onclick:()=>edit(p.id)},'Editar'),' ',h('button',{class:'btn secondary',onclick:()=>del_(p.id)},'Borrar')])
+  ]))); }
+  function add(){const id=prompt('ID (único):','prod-'+Date.now()); if(!id) return;
+    if(DB.catalog.find(x=>x.id===id)) return alert('ID existente');
+    const name=prompt('Nombre:','Nuevo'); const type=prompt('Tipo (producto/servicio/membresia):','producto');
+    const price=parseFloat(prompt('Precio:','100'))||0; const s=prompt('Stock (vacío = ilimitado):','');
+    const stock=s===''?null:(parseInt(s)||0); DB.catalog.push({id,name,type,price,stock});
+    DB.updatedAt=nowISO(); saveDB(DB); draw(); }
+  function edit(id){const p=DB.catalog.find(x=>x.id===id); if(!p) return;
+    const name=prompt('Nombre:',p.name)??p.name; const type=prompt('Tipo:',p.type)??p.type;
+    const price=parseFloat(prompt('Precio:',p.price))||p.price; const s=prompt('Stock (vacío = ilimitado):',p.stock==null?'':p.stock);
+    const stock=(s===''?null:(parseInt(s)||0)); Object.assign(p,{name,type,price,stock}); DB.updatedAt=nowISO(); saveDB(DB); draw();}
+  function del_(id){ if(!confirm('¿Borrar producto?')) return; DB.catalog=DB.catalog.filter(x=>x.id!==id); DB.updatedAt=nowISO(); saveDB(DB); draw(); }
+  draw();
+  return h('div',{},[
+    Section('Catálogo','Productos, servicios y membresías.'),
+    h('div',{class:'between',style:'margin-bottom:8px'},[h('span',{class:'pill'},`${DB.catalog.length} ítems`),h('button',{class:'btn',onclick:add},'Agregar ítem')]),
+    h('table',{class:'table'},[h('thead',{},h('tr',{},[h('th',{},'ID'),h('th',{},'Nombre'),h('th',{},'Tipo'),h('th',{},'Precio'),h('th',{},'Stock'),h('th',{},'Acciones')])),tbody])
+  ]);
+}
+
+/* --- Inventario --- */
+function Inventory(){
+  const list=h('tbody');
+  function draw(){list.innerHTML='';DB.stock_moves.slice().reverse().forEach(m=>list.appendChild(h('tr',{},[
+    h('td',{},m.date.slice(0,10)),h('td',{},m.productId),h('td',{},m.type),h('td',{},m.qty),h('td',{},m.note||'')
+  ]))); }
+  function move(type){
+    const productId=prompt('ID del producto (ver Catálogo):'); if(!productId) return;
+    const prod=DB.catalog.find(p=>p.id===productId); if(!prod) return alert('No encontrado');
+    if(prod.stock==null && type!=='ajuste'){ if(!confirm('Este item es sin stock. ¿Registrar igual?')) return; }
+    const qty=parseInt(prompt('Cantidad:', type==='entrada'?1:-1))||0; const note=prompt('Nota:','');
+    DB.stock_moves.push({date:nowISO(),productId,type,qty,note});
+    if(prod.stock!=null){ if(type==='entrada') prod.stock+=Math.abs(qty); else if(type==='salida') prod.stock-=Math.abs(qty); else if(type==='ajuste') prod.stock=parseInt(prompt('Nuevo stock:', prod.stock))||prod.stock; }
+    DB.updatedAt=nowISO(); saveDB(DB); draw();
+  }
+  draw();
+  return h('div',{},[
+    Section('Inventario','Entradas, salidas y ajustes.'),
+    h('div',{class:'row',style:'margin-bottom:8px'},[
+      h('button',{class:'btn',onclick:()=>move('entrada')},'Entrada'),
+      h('button',{class:'btn secondary',onclick:()=>move('salida')},'Salida'),
+      h('button',{class:'btn secondary',onclick:()=>move('ajuste')},'Ajuste')
+    ]),
+    h('table',{class:'table'},[h('thead',{},h('tr',{},[h('th',{},'Fecha'),h('th',{},'Producto'),h('th',{},'Tipo'),h('th',{},'Cant.'),h('th',{},'Nota')])),list])
+  ]);
+}
+
+/* --- POS --- */
+function Sales(){
+  const search=h('input',{class:'input',placeholder:'Buscar por nombre o ID…'});
+  const results=h('div',{class:'grid cards'}); const cartTbody=h('tbody');
+  const totalSpan=h('strong',{},'$0.00'); const payType=h('select',{},[
+    h('option',{value:'efectivo'},'Efectivo'),h('option',{value:'tarjeta'},'Tarjeta'),h('option',{value:'transferencia'},'Transferencia')
+  ]);
+  let cart=[];
+  const refreshTotal=()=> totalSpan.textContent='$'+cart.reduce((s,i)=>s+i.price*i.qty,0).toFixed(2);
+  function addToCart(p){ const e=cart.find(x=>x.id===p.id); e?e.qty++:cart.push({id:p.id,name:p.name,price:p.price,qty:1,type:p.type}); drawCart(); }
+  function drawCart(){ cartTbody.innerHTML=''; cart.forEach((i,idx)=>cartTbody.appendChild(h('tr',{},[
+    h('td',{},i.name),h('td',{},'$'+i.price.toFixed(2)),h('td',{},[
+      h('button',{class:'btn ghost',onclick:()=>{i.qty=Math.max(1,i.qty-1);drawCart();}},'−'),' '+i.qty+' ',
+      h('button',{class:'btn ghost',onclick:()=>{i.qty++;drawCart();}},'+')
+    ]),h('td',{},'$'+(i.price*i.qty).toFixed(2)),
+    h('td',{},h('button',{class:'btn secondary',onclick:()=>{cart.splice(idx,1);drawCart();}},'Quitar'))
+  ]))); refreshTotal(); }
+  function filter(){ const q=(search.value||'').toLowerCase().trim();
+    results.innerHTML=''; DB.catalog.filter(p=>p.name.toLowerCase().includes(q)||p.id.toLowerCase().includes(q))
+      .forEach(p=>results.appendChild(h('div',{class:'card'},[
+        h('div',{class:'between'},[h('div',{},[h('h2',{},p.name),h('div',{class:'muted'},`${p.type} • $${p.price}`)]),h('button',{class:'btn',onclick:()=>addToCart(p)},'Agregar')]),
+        (p.stock!=null)?h('div',{class:'muted'},`Stock: ${p.stock}`):h('div',{class:'muted'},'Stock: ilimitado')
+      ]))); }
+  function charge(){
+    if(!cart.length) return alert('Carrito vacío');
+    for(const i of cart){ const prod=DB.catalog.find(p=>p.id===i.id); if(prod&&prod.stock!=null&&prod.stock<i.qty) return alert(`Sin stock de ${i.name}`); }
+    const total=cart.reduce((s,i)=>s+i.price*i.qty,0);
+    const folio = nextFolioCode();
+    const sale={id:'sale-'+Date.now(),folio,date:nowISO(),items:cart.map(i=>({id:i.id,name:i.name,price:i.price,qty:i.qty,type:i.type})),total,pay:payType.value};
+    DB.sales.push(sale);
+    cart.forEach(i=>{ const prod=DB.catalog.find(p=>p.id===i.id); if(prod&&prod.stock!=null) prod.stock-=i.qty; });
+    DB.updatedAt=nowISO(); saveDB(DB);
+    printTicket(sale);
+    cart=[]; drawCart(); filter(); alert('Venta registrada');
+  }
+  search.addEventListener('input',filter); setTimeout(filter,0);
+  return h('div',{},[
+    Section('POS','Busca, agrega al carrito, cobra y descuenta stock.'),
+    h('div',{class:'grid',style:'grid-template-columns:repeat(auto-fit,minmax(280px,1fr));align-items:start'},[
+      h('div',{},[h('div',{class:'card'},[h('h2',{},'Catálogo'),search,h('div',{style:'height:8px'}),results])]),
+      h('div',{},[h('div',{class:'card'},[
+        h('h2',{},'Ticket'),
+        h('table',{class:'table'},[h('thead',{},h('tr',{},[h('th',{},'Item'),h('th',{},'Precio'),h('th',{},'Cant.'),h('th',{},'Subt.'),h('th',{},'')])),cartTbody]),
+        h('div',{class:'between',style:'margin-top:8px'},[h('div',{},[h('span',{class:'muted'},'Pago: '),payType]),h('div',{},[h('span',{class:'muted'},'Total: '),totalSpan])]),
+        h('div',{class:'row',style:'margin-top:8px'},[h('button',{class:'btn',onclick:charge},'Cobrar + Ticket'),h('button',{class:'btn secondary',onclick:()=>{cart=[];drawCart();}},'Vaciar')])
+      ])])
+    ])
+  ]);
+}
+
+/* --- Membresías --- */
+function Memberships(){
+  const tbody=h('tbody'); const filterSel=h('select',{},[
+    h('option',{value:'todas'},'Todas'),h('option',{value:'activa'},'Activas'),h('option',{value:'vencida'},'Vencidas')
+  ]);
+  function draw(){
+    tbody.innerHTML='';
+    const today=new Date().toISOString().slice(0,10);
+    DB.memberships.forEach(m=>{ m.status = (m.end >= today) ? 'activa' : 'vencida'; });
+    (DB.memberships.filter(m=>filterSel.value==='todas'||m.status===filterSel.value))
+    .slice().reverse().forEach(m=>tbody.appendChild(h('tr',{},[
+      h('td',{},m.name),h('td',{},m.plan),h('td',{},m.start),h('td',{},m.end),
+      h('td',{}, m.status==='activa'? h('span',{class:'ok'},'Activa'): h('span',{class:'danger'},'Vencida')),
+      h('td',{},[h('button',{class:'btn secondary',onclick:()=>edit(m.id)},'Editar'),' ',h('button',{class:'btn secondary',onclick:()=>del_(m.id)},'Borrar')])
+    ])));
+  }
+  function add(){
+    const name=prompt('Nombre del socio:'); if(!name) return;
+    const plan=prompt('Plan (VIP/Mensual/etc):','VIP')||'VIP';
+    const start=prompt('Inicio (YYYY-MM-DD):', new Date().toISOString().slice(0,10))||new Date().toISOString().slice(0,10);
+    const months=parseInt(prompt('Meses de vigencia:',1))||1;
+    const end=addMonths(start, months);
+    DB.memberships.push({id:'mem-'+Date.now(),name,plan,start,months,end,status:'activa'});
+    DB.updatedAt=nowISO(); saveDB(DB); draw();
+  }
+  function edit(id){
+    const m=DB.memberships.find(x=>x.id===id); if(!m) return;
+    const plan=prompt('Plan:', m.plan)||m.plan;
+    const start=prompt('Inicio (YYYY-MM-DD):', m.start)||m.start;
+    const months=parseInt(prompt('Meses:', m.months))||m.months;
+    const end=addMonths(start, months);
+    Object.assign(m,{plan,start,months,end}); DB.updatedAt=nowISO(); saveDB(DB); draw();
+  }
+  function del_(id){ if(!confirm('¿Eliminar membresía?')) return;
+    DB.memberships=DB.memberships.filter(x=>x.id!==id); DB.updatedAt=nowISO(); saveDB(DB); draw();
+  }
+  filterSel.addEventListener('change', draw);
+  draw();
+  return h('div',{},[
+    Section('Membresías','Registro, vigencia y estado (activa/vencida).'),
+    h('div',{class:'between',style:'margin-bottom:8px'},[
+      h('span',{class:'pill'}, `${DB.memberships.length} membresías`),
+      h('div',{},[h('span',{class:'muted'},'Filtro: '),filterSel,' ',h('button',{class:'btn',onclick:add},'Agregar')])
+    ]),
+    h('table',{class:'table'},[
+      h('thead',{},h('tr',{},[h('th',{},'Nombre'),h('th',{},'Plan'),h('th',{},'Inicio'),h('th',{},'Fin'),h('th',{},'Estado'),h('th',{},'Acciones')])),tbody
+    ])
+  ]);
+}
+
+/* --- Clientes --- */
+function Customers(){
+  const tbody=h('tbody');
+  function draw(){tbody.innerHTML='';DB.customers.slice().reverse().forEach(c=>tbody.appendChild(h('tr',{},[
+    h('td',{},c.name),h('td',{},c.phone||''),h('td',{},c.email||''),h('td',{},c.notes||'')
+  ]))); }
+  function add(){ const name=prompt('Nombre:'); if(!name) return;
+    const phone=prompt('Teléfono:',''); const email=prompt('Correo:',''); const notes=prompt('Notas/membresía:','');
+    DB.customers.push({id:'c-'+Date.now(),name,phone,email,notes,createdAt:nowISO()}); DB.updatedAt=nowISO(); saveDB(DB); draw(); }
+  draw();
+  return h('div',{},[
+    Section('Clientes','Alta y notas rápidas.'),
+    h('div',{class:'between',style:'margin-bottom:8px'},[h('span',{class:'pill'},`${DB.customers.length} clientes`),h('button',{class:'btn',onclick:add},'Agregar cliente')]),
+    h('table',{class:'table'},[h('thead',{},h('tr',{},[h('th',{},'Nombre'),h('th',{},'Teléfono'),h('th',{},'Correo'),h('th',{},'Notas')])),tbody])
+  ]);
+}
+
+/* --- Reportes --- */
+function Reports(){
+  const byDay={}, byMonth={};
+  DB.sales.forEach(s=>{const d=s.date.slice(0,10), m=s.date.slice(0,7); byDay[d]=(byDay[d]||0)+s.total; byMonth[m]=(byMonth[m]||0)+s.total;});
+  const daily=h('tbody'); Object.entries(byDay).sort().forEach(([d,tot])=>daily.appendChild(h('tr',{},[h('td',{},d),h('td',{},'$'+tot.toFixed(2))])));
+  const monthly=h('tbody'); Object.entries(byMonth).sort().forEach(([m,tot])=>monthly.appendChild(h('tr',{},[h('td',{},m),h('td',{},'$'+tot.toFixed(2))])));
+  const low=h('ul'); DB.catalog.filter(p=>p.stock!=null && p.stock<=5).forEach(p=>low.appendChild(h('li',{},`${p.name}: ${p.stock}`)));
+  const today=new Date().toISOString().slice(0,10);
+  const activeCount = DB.memberships.filter(m=>m.end>=today).length;
+
+  function exportCSV(){
+    const header='folio,id,fecha,total,pago\n';
+    const lines=DB.sales.map(s=>`${s.folio ?? ''},${s.id},${s.date},${s.total},${s.pay}`).join('\n');
+    const blob=new Blob([header+lines],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='ventas.csv'; a.click(); URL.revokeObjectURL(url);
+  }
+
+  return h('div',{},[
+    Section('Reportes','Ventas + indicadores rápidos.'),
+    h('div',{class:'row',style:'margin-bottom:8px'},[
+      h('span',{class:'pill'},`${DB.sales.length} ventas`),
+      h('span',{class:'pill'},`Membresías activas: ${activeCount}`),
+      h('button',{class:'btn secondary',onclick:exportCSV},'Exportar ventas (.csv)')
+    ]),
+    h('div',{class:'grid',style:'grid-template-columns:repeat(auto-fit,minmax(260px,1fr))'},[
+      h('div',{class:'card'},[h('h2',{},'Ventas por día'),h('table',{class:'table'},[h('thead',{},h('tr',{},[h('th',{},'Día'),h('th',{},'Total')])),daily])]),
+      h('div',{class:'card'},[h('h2',{},'Ventas por mes'),h('table',{class:'table'},[h('thead',{},h('tr',{},[h('th',{},'Mes'),h('th',{},'Total')])),monthly])]),
+      h('div',{class:'card'},[h('h2',{},'Stock bajo (≤5)'), low.childElementCount?low:h('div',{class:'muted'},'Todo OK')])
+    ])
+  ]);
+}
+
+/* --- Backup (local-first) --- */
+async function saveFileLocally(filename, blob) {
+  if (window.showSaveFilePicker) {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: filename,
+      types: [{ description:'JSON', accept: {'application/json':['.json']} }]
+    });
+    const w = await handle.createWritable();
+    await w.write(blob); await w.close();
+    return true;
+  } else {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    return false;
+  }
+}
+async function openLocalFileAsText() {
+  if (window.showOpenFilePicker) {
+    const [handle] = await window.showOpenFilePicker({
+      types: [{ description:'JSON', accept: {'application/json':['.json']} }]
+    });
+    const file = await handle.getFile();
+    return await file.text();
+  } else {
+    return new Promise((resolve,reject)=>{
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = '.json,application/json';
+      input.onchange = e => {
+        const f = e.target.files[0]; if(!f) return reject(new Error('Sin archivo'));
+        const r = new FileReader();
+        r.onload = ev => resolve(ev.target.result);
+        r.onerror = reject;
+        r.readAsText(f);
+      };
+      input.click();
+    });
+  }
+}
+function Backup(){
+  async function exportJSON(){ 
+    const blob = new Blob([JSON.stringify(DB,null,2)], {type:'application/json'});
+    const ok = await saveFileLocally(`dinamita-backup-${new Date().toISOString().slice(0,10)}.json`, blob);
+    alert(ok ? 'Respaldo guardado en el dispositivo.' : 'Descargado el archivo de respaldo.');
+  }
+  async function importFromDevice(){
+    try{
+      const text = await openLocalFileAsText();
+      const data = JSON.parse(text);
+      if(!data.catalog || !data.sales) throw new Error('Formato inválido');
+      DB = data; DB.updatedAt = nowISO(); saveDB(DB);
+      alert('Backup importado desde el dispositivo');
+      render('/panel/backup');
+    }catch(err){ alert('Error al importar: '+err.message); }
+  }
+  return h('div',{},[
+    Section('Backup (local)','Todo local. Sin nube.'),
+    h('div',{class:'row',style:'margin-bottom:8px'},[
+      h('button',{class:'btn',onclick:exportJSON},'Guardar en dispositivo (.json)'),
+      h('button',{class:'btn secondary',onclick:importFromDevice},'Restaurar desde dispositivo (.json)')
+    ]),
+    h('div',{class:'muted'},'Se guarda: catálogo, clientes, ventas, movimientos de stock, membresías e identidad (100% local).')
+  ]);
+}
+
+/* === Start === */
+const initial=location.hash.replace('#','')||localStorage.getItem('dinamita:last')||'/welcome';
+if(!location.hash)location.hash=initial;render(initial);
+</script>
+</body>
+</html>
